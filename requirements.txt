@@ -1,0 +1,6 @@
+streamlit
+pandas
+numpy
+scikit-learn
+edge-tts
+google-api-python-client
