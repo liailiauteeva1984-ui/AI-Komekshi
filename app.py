@@ -1176,6 +1176,32 @@ def pca_profile():
 # 15. SIDEBAR
 # ============================================================
 
+from grade_math_assistant import render_grade_assistant
+
+MAIN_SECTIONS = [
+    "♿ Инклюзия",
+    "📘 5-сынып",
+    "📗 6-сынып",
+    "📙 7-сынып",
+    "📕 8-сынып",
+    "📓 9-сынып",
+    "🎓 10-сынып",
+    "🏆 11-сынып",
+]
+
+selected_main_section = st.radio(
+    "Негізгі бөлімді таңдаңыз",
+    MAIN_SECTIONS,
+    horizontal=True,
+    key="main_section_navigation",
+)
+
+if selected_main_section != "♿ Инклюзия":
+    render_grade_assistant(selected_main_section)
+    st.stop()
+
+st.caption("♿ Инклюзия бөлімі: көбейту мен бөлуді меңгеруге арналған мультимодальды адаптивті AI-көмекші")
+
 st.sidebar.header(
     "⚙️ Жеке баптау"
 )
