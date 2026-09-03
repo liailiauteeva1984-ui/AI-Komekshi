@@ -1,11 +1,16 @@
-"""5–11-сыныптарға арналған қазақша математикалық көмекші."""
+"""5–11-сыныптарға арналған қазақша мультимодальды математикалық көмекші."""
 
+import asyncio
+import io
 import math
 import random
 import time
 
+import edge_tts
 import pandas as pd
 import streamlit as st
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 
 COURSES = {
@@ -212,6 +217,73 @@ def _correct(given, expected):
         return a == b
 
 
+def _youtube_key():
+    try:
+        return st.secrets.get("YOUTUBE_API_KEY", "")
+    except Exception:
+        return ""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _youtube_videos(query, count=3):
+    key = _youtube_key()
+    if not key:
+        return []
+    try:
+        service = build("youtube", "v3", developerKey=key, cache_discovery=False)
+        response = service.search().list(
+            part="snippet", q=query, type="video", maxResults=count,
+            relevanceLanguage="kk", safeSearch="strict",
+        ).execute()
+        return [
+            {
+                "title": item["snippet"]["title"],
+                "url": f"https://www.youtube.com/watch?v={item['id']['videoId']}",
+            }
+            for item in response.get("items", [])
+            if item.get("id", {}).get("videoId")
+        ]
+    except (HttpError, KeyError, OSError, ValueError):
+        return []
+
+
+async def _make_audio_bytes(text, voice):
+    data = bytearray()
+    communicate = edge_tts.Communicate(text, voice)
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            data.extend(chunk["data"])
+    return bytes(data)
+
+
+@st.cache_data(show_spinner=False)
+def _explanation_audio(text, voice):
+    try:
+        return asyncio.run(_make_audio_bytes(text, voice))
+    except Exception:
+        return None
+
+
+def _four_steps(question, hint, expected):
+    return [
+        ("1-қадам. Шартты түсіну", f"Берілген тапсырма: {question} Ізделінетін шаманы анықтаймыз."),
+        ("2-қадам. Ережені таңдау", f"Қолданылатын негізгі ереже: {hint}"),
+        ("3-қадам. Есептеу", "Берілген сандарды таңдалған ережеге қойып, амалдарды ретімен орындаймыз."),
+        ("4-қадам. Жауапты тексеру", f"Есептеу нәтижесін шартпен салыстырамыз. Дұрыс жауап: {expected}."),
+    ]
+
+
+def _show_video_list(videos, empty_message):
+    if not videos:
+        st.warning(empty_message)
+        return
+    columns = st.columns(min(3, len(videos)))
+    for index, video in enumerate(videos):
+        with columns[index % len(columns)]:
+            st.video(video["url"])
+            st.caption(video["title"])
+
+
 BREAK_EXERCISES = {
     "👀 Көз жаттығуы": "20 секунд алыс нүктеге қараңыз. Содан кейін көзіңізбен баяу оңға, солға, жоғары және төмен қараңыз.",
     "✋ Қол жаттығуы": "Алақаныңызды 5 рет ашып-жұмыңыз. Білегіңізді әр бағытқа 5 рет айналдырыңыз.",
@@ -247,6 +319,9 @@ def render_grade_assistant(section_label):
     attempt_key = f"{prefix}_attempt"
     last_break_key = f"{prefix}_last_break"
     break_count_key = f"{prefix}_break_count"
+    audio_count_key = f"{prefix}_audio_count"
+    video_count_key = f"{prefix}_video_count"
+    support_logged_key = f"{prefix}_support_logged"
 
     st.session_state.setdefault(history_key, [])
     st.session_state.setdefault(question_key, None)
@@ -260,11 +335,20 @@ def render_grade_assistant(section_label):
     st.session_state.setdefault(attempt_key, 0)
     st.session_state.setdefault(last_break_key, 0)
     st.session_state.setdefault(break_count_key, 0)
+    st.session_state.setdefault(audio_count_key, 0)
+    st.session_state.setdefault(video_count_key, 0)
+    st.session_state.setdefault(support_logged_key, False)
 
     st.markdown(f'<div class="main-title">{section_label} математика көмекшісі</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Тақырыпты таңдаңыз • тапсырманы орындаңыз • нәтижені бақылаңыз</div>', unsafe_allow_html=True)
 
     topic = st.selectbox("📚 Тақырып", list(course), key=f"{prefix}_topic")
+    voice_label = st.selectbox(
+        "🔊 Қазақша AI дауысы",
+        ["Айгүл — әйел дауысы", "Дәулет — ер дауысы"],
+        key=f"{prefix}_voice",
+    )
+    voice = "kk-KZ-AigulNeural" if voice_label.startswith("Айгүл") else "kk-KZ-DauletNeural"
     level_names = {1: "Жеңіл", 2: "Орташа", 3: "Күрделі"}
     st.info(f"🤖 AI ұсынған деңгей: **{level_names[st.session_state[level_key]]}**")
 
@@ -273,6 +357,16 @@ def render_grade_assistant(section_label):
         st.markdown('<div class="break-card"><h2>🌿 Сергіту сәті</h2><p>5 тапсырма орындалды. Бір жаттығуды таңдап орындаңыз.</p></div>', unsafe_allow_html=True)
         exercise = st.radio("Жаттығу түрі", list(BREAK_EXERCISES), horizontal=True, key=f"{prefix}_break_choice")
         st.success(BREAK_EXERCISES[exercise])
+        break_queries = {
+            "👀 Көз жаттығуы": "балаларға арналған көз жаттығуы қазақша",
+            "✋ Қол жаттығуы": "балаларға арналған қол саусақ жаттығуы қазақша",
+            "🧍 Қимыл жаттығуы": "оқушыларға арналған сергіту сәті қазақша",
+        }
+        st.subheader("🎬 Видео жаттығу")
+        _show_video_list(
+            _youtube_videos(break_queries[exercise], 1),
+            "Видео табылмады. YouTube API кілтін тексеріңіз.",
+        )
         if st.button("✅ Жаттығуды аяқтадым", key=f"{prefix}_break_done", use_container_width=True):
             st.session_state[last_break_key] = main_completed
             st.session_state[break_count_key] += 1
@@ -298,6 +392,7 @@ def render_grade_assistant(section_label):
                 st.session_state[hint_key] = False
                 st.session_state[answered_key] = False
                 st.session_state[retry_key] = False
+                st.session_state[support_logged_key] = False
                 current = st.session_state[question_key]
             else:
                 current = None
@@ -329,6 +424,7 @@ def render_grade_assistant(section_label):
                     elif not ok or st.session_state[hint_key]:
                         st.session_state[level_key] = max(1, st.session_state[level_key] - 1)
                     st.session_state[answered_key] = True
+                    st.session_state[support_logged_key] = False
                     st.session_state[feedback_key] = "Дұрыс! Келесі тапсырма күрделірек болуы мүмкін. 🎉" if ok else f"Қате бар. Көмек: {hint}"
                     st.rerun()
 
@@ -338,6 +434,29 @@ def render_grade_assistant(section_label):
                     st.success(st.session_state[feedback_key])
                 else:
                     st.error(st.session_state[feedback_key])
+                    st.subheader("🤖 4 қадамдық түсіндірме")
+                    steps = _four_steps(text, hint, expected)
+                    for step_title, step_text in steps:
+                        st.markdown(
+                            f'<div class="step-card"><b>{step_title}</b><br>{step_text}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    spoken_text = " ".join(f"{title}. {body}" for title, body in steps)
+                    if st.button("🔊 AI түсіндірмесін тыңдау", key=f"{prefix}_audio_{st.session_state[attempt_key]}"):
+                        with st.spinner("Қазақша дыбыс дайындалып жатыр..."):
+                            audio_data = _explanation_audio(spoken_text, voice)
+                        if audio_data:
+                            st.audio(io.BytesIO(audio_data), format="audio/mp3")
+                            st.session_state[audio_count_key] += 1
+                        else:
+                            st.warning("Дыбысты дайындау мүмкін болмады. Интернетті тексеріңіз.")
+
+                    st.subheader("🎬 YouTube-тен 3 видеотүсіндірме")
+                    videos = _youtube_videos(f"{grade} математика {topic} қазақша түсіндіру", 3)
+                    _show_video_list(videos, "Видео табылмады. YouTube API кілтін тексеріңіз.")
+                    if videos and not st.session_state[support_logged_key]:
+                        st.session_state[video_count_key] += len(videos)
+                        st.session_state[support_logged_key] = True
                 b1, b2 = st.columns(2)
                 if not last_ok and b1.button("🔄 Қатені түзету", key=f"{prefix}_retry_button"):
                     st.session_state[answered_key] = False
@@ -346,6 +465,7 @@ def render_grade_assistant(section_label):
                     st.session_state[hint_key] = False
                     st.session_state[attempt_key] += 1
                     st.session_state[start_key] = time.time()
+                    st.session_state[support_logged_key] = False
                     st.rerun()
                 if b2.button("➡️ Келесі тапсырма", key=f"{prefix}_next"):
                     st.session_state[question_key] = None
@@ -354,6 +474,7 @@ def render_grade_assistant(section_label):
                     st.session_state[feedback_key] = ""
                     st.session_state[hint_key] = False
                     st.session_state[attempt_key] += 1
+                    st.session_state[support_logged_key] = False
                     st.rerun()
 
     with result_tab:
@@ -396,7 +517,15 @@ def render_grade_assistant(section_label):
                     "🔄 Қайта орындалған есеп",
                     "📚 Таңдалған тақырып",
                 ],
-                "Нәтиже": [completed, st.session_state[break_count_key], help_count, 0, 0, retry_count, topic],
+                "Нәтиже": [
+                    completed,
+                    st.session_state[break_count_key],
+                    help_count,
+                    st.session_state[audio_count_key],
+                    st.session_state[video_count_key],
+                    retry_count,
+                    topic,
+                ],
             })
             st.dataframe(learning_table, hide_index=True, use_container_width=True)
 
