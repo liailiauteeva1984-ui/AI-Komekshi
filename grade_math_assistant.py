@@ -80,17 +80,23 @@ def render_grade_assistant(section_label):
     question_key = f"{prefix}_question"
     start_key = f"{prefix}_start"
     feedback_key = f"{prefix}_feedback"
+    hint_key = f"{prefix}_hint_used"
 
     st.session_state.setdefault(history_key, [])
     st.session_state.setdefault(question_key, None)
     st.session_state.setdefault(start_key, time.time())
     st.session_state.setdefault(feedback_key, "")
+    st.session_state.setdefault(hint_key, False)
 
     st.markdown(f'<div class="main-title">{section_label} математика көмекшісі</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Тақырыпты таңдаңыз • тапсырманы орындаңыз • нәтижені бақылаңыз</div>', unsafe_allow_html=True)
 
     topic = st.selectbox("📚 Тақырып", list(course), key=f"{prefix}_topic")
-    lesson_tab, result_tab = st.tabs(["🧩 Тапсырма", "📊 Нәтиже"])
+    lesson_tab, result_tab, teacher_tab = st.tabs([
+        "🧩 Тапсырма",
+        "📊 Нәтиже",
+        "👩‍🏫 Мұғалімге арналған ақпарат",
+    ])
 
     with lesson_tab:
         current = st.session_state[question_key]
@@ -99,18 +105,26 @@ def render_grade_assistant(section_label):
             st.session_state[question_key] = (topic, text, answer, hint)
             st.session_state[start_key] = time.time()
             st.session_state[feedback_key] = ""
+            st.session_state[hint_key] = False
         _, text, expected, hint = st.session_state[question_key]
         st.markdown(f'<div class="problem-box" style="font-size:30px">{text}</div>', unsafe_allow_html=True)
         given = st.text_input("Жауабыңыз", key=f"{prefix}_answer_{len(st.session_state[history_key])}")
         c1, c2 = st.columns(2)
         if c1.button("💡 Көмек", key=f"{prefix}_hint", use_container_width=True):
+            st.session_state[hint_key] = True
             st.info(hint)
         if c2.button("✅ Тексеру", key=f"{prefix}_check", use_container_width=True):
             if not given.strip():
                 st.warning("Алдымен жауап енгізіңіз.")
             else:
                 ok = _correct(given, expected)
-                st.session_state[history_key].append({"Тақырып": topic, "Дұрыс": ok, "Уақыт": round(time.time()-st.session_state[start_key], 1)})
+                st.session_state[history_key].append({
+                    "Тақырып": topic,
+                    "Тапсырма": text,
+                    "Дұрыс": ok,
+                    "Уақыт": round(time.time()-st.session_state[start_key], 1),
+                    "Көмек": int(st.session_state[hint_key]),
+                })
                 st.session_state[feedback_key] = "Дұрыс! Жарайсың! 🎉" if ok else f"Қате. Дұрыс жауап: {expected}. Көмек: {hint}"
                 st.rerun()
         if st.session_state[feedback_key]:
@@ -124,6 +138,7 @@ def render_grade_assistant(section_label):
                 st.session_state[question_key] = (topic, text, answer, hint)
                 st.session_state[start_key] = time.time()
                 st.session_state[feedback_key] = ""
+                st.session_state[hint_key] = False
                 st.rerun()
 
     with result_tab:
@@ -140,3 +155,107 @@ def render_grade_assistant(section_label):
             st.bar_chart(chart)
             weakest = chart.idxmin()
             st.info(f"🤖 Ұсыныс: **{weakest}** тақырыбын қайталаңыз.")
+
+    with teacher_tab:
+        history = st.session_state[history_key]
+        st.subheader("📊 Оқушының оқу аналитикасы")
+        if not history:
+            st.info("Мұғалім аналитикасы шығуы үшін оқушы кемінде бір тапсырма орындауы керек.")
+        else:
+            df = pd.DataFrame(history)
+            completed = len(df)
+            correct_count = int(df["Дұрыс"].sum())
+            wrong_count = completed - correct_count
+            accuracy = df["Дұрыс"].mean() * 100
+            avg_time = df["Уақыт"].mean()
+            help_count = int(df["Көмек"].sum())
+            retry_count = wrong_count
+
+            learning_table = pd.DataFrame({
+                "Көрсеткіш": [
+                    "🧩 Орындалған тапсырма",
+                    "💡 Көмек қолдану",
+                    "🔊 Дыбыстық көмек",
+                    "🎬 Видео түсіндіру",
+                    "🔄 Қайта орындалған есеп",
+                    "📚 Таңдалған тақырып",
+                ],
+                "Нәтиже": [completed, help_count, 0, 0, retry_count, topic],
+            })
+            st.dataframe(learning_table, hide_index=True, use_container_width=True)
+
+            st.subheader("🎯 Оқу нәтижесі")
+            result_table = pd.DataFrame({
+                "Көрсеткіш": [
+                    "✅ Дұрыс жауап",
+                    "❌ Қате жауап",
+                    "🎯 Жалпы нәтиже",
+                    "⏱️ Орташа уақыт",
+                    "💡 Көмек қолдану",
+                    "📌 Қайта қаралатын есеп",
+                ],
+                "Нәтиже": [
+                    correct_count,
+                    wrong_count,
+                    f"{accuracy:.0f}%",
+                    f"{avg_time:.1f} сек",
+                    help_count,
+                    retry_count,
+                ],
+            })
+            st.dataframe(result_table, hide_index=True, use_container_width=True)
+
+            topic_stats = df.groupby("Тақырып").agg(
+                Орындалған=("Дұрыс", "size"),
+                Дұрыс=("Дұрыс", "sum"),
+                Орташа_уақыт=("Уақыт", "mean"),
+                Көмек_саны=("Көмек", "sum"),
+            ).reset_index()
+            topic_stats["Қате"] = topic_stats["Орындалған"] - topic_stats["Дұрыс"]
+            topic_stats["Нәтиже (%)"] = (topic_stats["Дұрыс"] / topic_stats["Орындалған"] * 100).round(0)
+            topic_stats["Орташа уақыт (сек)"] = topic_stats["Орташа_уақыт"].round(1)
+
+            weakest = topic_stats.sort_values(["Нәтиже (%)", "Көмек_саны"], ascending=[True, False]).iloc[0]["Тақырып"]
+            if accuracy >= 85:
+                level, support, dynamics = "Жоғары", "Күрделендірілген тапсырмалар", "Нәтиже тұрақты"
+            elif accuracy >= 60:
+                level, support, dynamics = "Орташа", "Қысқа қадамдық түсіндіру", "Қосымша жаттығу қажет"
+            else:
+                level, support, dynamics = "Қосымша қолдау қажет", "Толық визуалды және қадамдық қолдау", "Негізгі ұғымдарды бекіту қажет"
+
+            st.subheader("🤖 AI-дың оқушы бойынша ұсынысы")
+            recommendation_table = pd.DataFrame({
+                "Көрсеткіш": [
+                    "🎯 Меңгеру деңгейі",
+                    "🧩 Ұсынылатын қолдау",
+                    "➡️ Оқу динамикасы",
+                    "⚠️ Қиындық туғызған тақырып",
+                    "💡 Тиімді көмек түрі",
+                    "🔄 Қайта орындау қажет",
+                    "👩‍🏫 Мұғалімге ұсыныс",
+                ],
+                "AI қорытындысы": [
+                    level,
+                    support,
+                    dynamics,
+                    weakest,
+                    "Қазақша қадамдық түсіндіру",
+                    f"{retry_count} тапсырма",
+                    f"«{weakest}» тақырыбын қайталап, оқушыға жеке кері байланыс беріңіз.",
+                ],
+            })
+            st.dataframe(recommendation_table, hide_index=True, use_container_width=True)
+
+            st.subheader("🧮 Тақырыптар бойынша анализ")
+            display_columns = ["Тақырып", "Орындалған", "Дұрыс", "Қате", "Нәтиже (%)", "Орташа уақыт (сек)", "Көмек_саны"]
+            st.dataframe(topic_stats[display_columns], hide_index=True, use_container_width=True)
+            st.bar_chart(topic_stats.set_index("Тақырып")["Нәтиже (%)"])
+
+            csv_data = df.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "📥 Толық нәтижені CSV жүктеу",
+                csv_data,
+                file_name=f"{grade}_matematika_analitika.csv",
+                mime="text/csv",
+                key=f"{prefix}_teacher_download",
+            )
