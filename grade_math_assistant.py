@@ -72,6 +72,25 @@ def _correct(given, expected):
         return a == b
 
 
+BREAK_EXERCISES = {
+    "👀 Көз жаттығуы": "20 секунд алыс нүктеге қараңыз. Содан кейін көзіңізбен баяу оңға, солға, жоғары және төмен қараңыз.",
+    "✋ Қол жаттығуы": "Алақаныңызды 5 рет ашып-жұмыңыз. Білегіңізді әр бағытқа 5 рет айналдырыңыз.",
+    "🧍 Қимыл жаттығуы": "Орныңыздан тұрып, иығыңызды 5 рет айналдырыңыз және екі жаққа баяу созылыңыз.",
+}
+
+
+def _pick_unseen(course, topic, seen, level):
+    available = [q for q in course[topic] if q[0] not in seen.setdefault(topic, [])]
+    if not available:
+        return None
+    # Жеңіл деңгейде алғашқы, күрделі деңгейде соңғы тапсырмалар басым таңдалады.
+    if level == 1:
+        return available[0]
+    if level == 3:
+        return available[-1]
+    return random.choice(available)
+
+
 def render_grade_assistant(section_label):
     grade = section_label.split(" ", 1)[1]
     course = COURSES[grade]
@@ -81,17 +100,45 @@ def render_grade_assistant(section_label):
     start_key = f"{prefix}_start"
     feedback_key = f"{prefix}_feedback"
     hint_key = f"{prefix}_hint_used"
+    seen_key = f"{prefix}_seen"
+    level_key = f"{prefix}_level"
+    answered_key = f"{prefix}_answered"
+    retry_key = f"{prefix}_retry"
+    attempt_key = f"{prefix}_attempt"
+    last_break_key = f"{prefix}_last_break"
+    break_count_key = f"{prefix}_break_count"
 
     st.session_state.setdefault(history_key, [])
     st.session_state.setdefault(question_key, None)
     st.session_state.setdefault(start_key, time.time())
     st.session_state.setdefault(feedback_key, "")
     st.session_state.setdefault(hint_key, False)
+    st.session_state.setdefault(seen_key, {})
+    st.session_state.setdefault(level_key, 1)
+    st.session_state.setdefault(answered_key, False)
+    st.session_state.setdefault(retry_key, False)
+    st.session_state.setdefault(attempt_key, 0)
+    st.session_state.setdefault(last_break_key, 0)
+    st.session_state.setdefault(break_count_key, 0)
 
     st.markdown(f'<div class="main-title">{section_label} математика көмекшісі</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Тақырыпты таңдаңыз • тапсырманы орындаңыз • нәтижені бақылаңыз</div>', unsafe_allow_html=True)
 
     topic = st.selectbox("📚 Тақырып", list(course), key=f"{prefix}_topic")
+    level_names = {1: "Жеңіл", 2: "Орташа", 3: "Күрделі"}
+    st.info(f"🤖 AI ұсынған деңгей: **{level_names[st.session_state[level_key]]}**")
+
+    main_completed = sum(1 for row in st.session_state[history_key] if not row.get("Қайта орындау", False))
+    if main_completed > 0 and main_completed % 5 == 0 and st.session_state[last_break_key] != main_completed:
+        st.markdown('<div class="break-card"><h2>🌿 Сергіту сәті</h2><p>5 тапсырма орындалды. Бір жаттығуды таңдап орындаңыз.</p></div>', unsafe_allow_html=True)
+        exercise = st.radio("Жаттығу түрі", list(BREAK_EXERCISES), horizontal=True, key=f"{prefix}_break_choice")
+        st.success(BREAK_EXERCISES[exercise])
+        if st.button("✅ Жаттығуды аяқтадым", key=f"{prefix}_break_done", use_container_width=True):
+            st.session_state[last_break_key] = main_completed
+            st.session_state[break_count_key] += 1
+            st.rerun()
+        st.stop()
+
     lesson_tab, result_tab, teacher_tab = st.tabs([
         "🧩 Тапсырма",
         "📊 Нәтиже",
@@ -101,45 +148,73 @@ def render_grade_assistant(section_label):
     with lesson_tab:
         current = st.session_state[question_key]
         if current is None or current[0] != topic:
-            text, answer, hint = random.choice(course[topic])
-            st.session_state[question_key] = (topic, text, answer, hint)
-            st.session_state[start_key] = time.time()
-            st.session_state[feedback_key] = ""
-            st.session_state[hint_key] = False
-        _, text, expected, hint = st.session_state[question_key]
-        st.markdown(f'<div class="problem-box" style="font-size:30px">{text}</div>', unsafe_allow_html=True)
-        given = st.text_input("Жауабыңыз", key=f"{prefix}_answer_{len(st.session_state[history_key])}")
-        c1, c2 = st.columns(2)
-        if c1.button("💡 Көмек", key=f"{prefix}_hint", use_container_width=True):
-            st.session_state[hint_key] = True
-            st.info(hint)
-        if c2.button("✅ Тексеру", key=f"{prefix}_check", use_container_width=True):
-            if not given.strip():
-                st.warning("Алдымен жауап енгізіңіз.")
-            else:
-                ok = _correct(given, expected)
-                st.session_state[history_key].append({
-                    "Тақырып": topic,
-                    "Тапсырма": text,
-                    "Дұрыс": ok,
-                    "Уақыт": round(time.time()-st.session_state[start_key], 1),
-                    "Көмек": int(st.session_state[hint_key]),
-                })
-                st.session_state[feedback_key] = "Дұрыс! Жарайсың! 🎉" if ok else f"Қате. Дұрыс жауап: {expected}. Көмек: {hint}"
-                st.rerun()
-        if st.session_state[feedback_key]:
-            last_ok = st.session_state[history_key][-1]["Дұрыс"]
-            if last_ok:
-                st.success(st.session_state[feedback_key])
-            else:
-                st.error(st.session_state[feedback_key])
-            if st.button("➡️ Келесі тапсырма", key=f"{prefix}_next"):
-                text, answer, hint = random.choice(course[topic])
+            picked = _pick_unseen(course, topic, st.session_state[seen_key], st.session_state[level_key])
+            if picked:
+                text, answer, hint = picked
                 st.session_state[question_key] = (topic, text, answer, hint)
+                st.session_state[seen_key].setdefault(topic, []).append(text)
                 st.session_state[start_key] = time.time()
                 st.session_state[feedback_key] = ""
                 st.session_state[hint_key] = False
-                st.rerun()
+                st.session_state[answered_key] = False
+                st.session_state[retry_key] = False
+                current = st.session_state[question_key]
+            else:
+                current = None
+
+        if current is None:
+            st.success("✅ Бұл тақырыптағы қайталанбайтын тапсырмалардың барлығы орындалды. Басқа тақырыпты таңдаңыз.")
+        else:
+            _, text, expected, hint = current
+            st.markdown(f'<div class="problem-box" style="font-size:30px">{text}</div>', unsafe_allow_html=True)
+            given = st.text_input("Жауабыңыз", key=f"{prefix}_answer_{st.session_state[attempt_key]}")
+            c1, c2 = st.columns(2)
+            if c1.button("💡 Көмек", key=f"{prefix}_hint_{st.session_state[attempt_key]}", use_container_width=True, disabled=st.session_state[answered_key]):
+                st.session_state[hint_key] = True
+                st.info(hint)
+            if c2.button("✅ Тексеру", key=f"{prefix}_check_{st.session_state[attempt_key]}", use_container_width=True, disabled=st.session_state[answered_key]):
+                if not given.strip():
+                    st.warning("Алдымен жауап енгізіңіз.")
+                else:
+                    ok = _correct(given, expected)
+                    elapsed = round(time.time()-st.session_state[start_key], 1)
+                    st.session_state[history_key].append({
+                        "Тақырып": topic, "Тапсырма": text, "Дұрыс": ok,
+                        "Уақыт": elapsed, "Көмек": int(st.session_state[hint_key]),
+                        "Деңгей": level_names[st.session_state[level_key]],
+                        "Қайта орындау": bool(st.session_state[retry_key]),
+                    })
+                    if ok and not st.session_state[hint_key] and elapsed <= 90:
+                        st.session_state[level_key] = min(3, st.session_state[level_key] + 1)
+                    elif not ok or st.session_state[hint_key]:
+                        st.session_state[level_key] = max(1, st.session_state[level_key] - 1)
+                    st.session_state[answered_key] = True
+                    st.session_state[feedback_key] = "Дұрыс! Келесі тапсырма күрделірек болуы мүмкін. 🎉" if ok else f"Қате бар. Көмек: {hint}"
+                    st.rerun()
+
+            if st.session_state[feedback_key]:
+                last_ok = st.session_state[history_key][-1]["Дұрыс"]
+                if last_ok:
+                    st.success(st.session_state[feedback_key])
+                else:
+                    st.error(st.session_state[feedback_key])
+                b1, b2 = st.columns(2)
+                if not last_ok and b1.button("🔄 Қатені түзету", key=f"{prefix}_retry_button"):
+                    st.session_state[answered_key] = False
+                    st.session_state[retry_key] = True
+                    st.session_state[feedback_key] = ""
+                    st.session_state[hint_key] = False
+                    st.session_state[attempt_key] += 1
+                    st.session_state[start_key] = time.time()
+                    st.rerun()
+                if b2.button("➡️ Келесі тапсырма", key=f"{prefix}_next"):
+                    st.session_state[question_key] = None
+                    st.session_state[answered_key] = False
+                    st.session_state[retry_key] = False
+                    st.session_state[feedback_key] = ""
+                    st.session_state[hint_key] = False
+                    st.session_state[attempt_key] += 1
+                    st.rerun()
 
     with result_tab:
         history = st.session_state[history_key]
@@ -163,24 +238,25 @@ def render_grade_assistant(section_label):
             st.info("Мұғалім аналитикасы шығуы үшін оқушы кемінде бір тапсырма орындауы керек.")
         else:
             df = pd.DataFrame(history)
-            completed = len(df)
+            completed = int((~df["Қайта орындау"]).sum()) if "Қайта орындау" in df else len(df)
             correct_count = int(df["Дұрыс"].sum())
             wrong_count = completed - correct_count
             accuracy = df["Дұрыс"].mean() * 100
             avg_time = df["Уақыт"].mean()
             help_count = int(df["Көмек"].sum())
-            retry_count = wrong_count
+            retry_count = int(df["Қайта орындау"].sum()) if "Қайта орындау" in df else 0
 
             learning_table = pd.DataFrame({
                 "Көрсеткіш": [
                     "🧩 Орындалған тапсырма",
+                    "🌿 Сергіту сәті",
                     "💡 Көмек қолдану",
                     "🔊 Дыбыстық көмек",
                     "🎬 Видео түсіндіру",
                     "🔄 Қайта орындалған есеп",
                     "📚 Таңдалған тақырып",
                 ],
-                "Нәтиже": [completed, help_count, 0, 0, retry_count, topic],
+                "Нәтиже": [completed, st.session_state[break_count_key], help_count, 0, 0, retry_count, topic],
             })
             st.dataframe(learning_table, hide_index=True, use_container_width=True)
 
