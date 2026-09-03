@@ -1,5 +1,6 @@
 """5–11-сыныптарға арналған қазақша математикалық көмекші."""
 
+import math
 import random
 import time
 
@@ -58,6 +59,145 @@ COURSES = {
         "Комплекс сандар": [("i² мәнін табыңыз.", "-1", "Жорамал бірлік анықтамасы."), ("(2+i)(2−i) мәнін табыңыз.", "5", "i²=−1.")],
     },
 }
+
+
+def _fmt(number):
+    value = round(float(number), 4)
+    return str(int(value)) if value.is_integer() else str(value)
+
+
+def _generated_question(grade, topic, i):
+    """Әр тақырыпқа мазмұны дұрыс, параметрлері бөлек тапсырма жасайды."""
+    r = random.Random(f"{grade}|{topic}|{i}")
+
+    if topic == "Натурал сандар":
+        a, b = r.randint(120, 950), r.randint(80, 780)
+        return (f"{a}+{b} мәнін табыңыз.", str(a+b), "Разрядтар бойынша қосыңыз.")
+    if topic == "Жай бөлшектер":
+        d = r.randint(5, 15); a = r.randint(1, d//2); b = r.randint(1, d-a)
+        g = math.gcd(a+b, d)
+        return (f"{a}/{d}+{b}/{d} мәнін қысқартып жазыңыз.", f"{(a+b)//g}/{d//g}", "Алымдарды қосып, бөлшекті қысқартыңыз.")
+    if topic == "Ондық бөлшектер":
+        a, b = r.randint(11, 99)/10, r.randint(11, 99)/10
+        return (f"{_fmt(a)}+{_fmt(b)} мәнін табыңыз.", _fmt(a+b), "Үтірлерді бірінің астына бірін келтіріңіз.")
+    if topic == "Пайыз":
+        p = r.choice([10, 20, 25, 50]); n = r.randint(2, 20)*20
+        return (f"{n} санының {p}%-ын табыңыз.", _fmt(n*p/100), "Санды пайыздың ондық бөлшегіне көбейтіңіз.")
+    if topic == "Геометриялық фигуралар":
+        a, b = r.randint(3, 18), r.randint(3, 18)
+        return (f"Ұзындығы {a} см, ені {b} см тіктөртбұрыштың ауданын табыңыз.", str(a*b), "S=a·b.")
+
+    if topic == "Қатынастар және пропорциялар":
+        a, b, k = r.randint(2, 9), r.randint(2, 9), r.randint(2, 8)
+        return (f"{a}:{b}=x:{b*k} пропорциясындағы x-ті табыңыз.", str(a*k), "Айқыш көбейту қасиетін қолданыңыз.")
+    if topic == "Рационал сандар":
+        a, b = r.randint(-20, -2), r.randint(3, 25)
+        return (f"{a}+{b} мәнін табыңыз.", str(a+b), "Сан түзуін немесе таңба ережесін қолданыңыз.")
+    if topic == "Өрнектер":
+        a, b = r.randint(2, 12), r.randint(2, 12)
+        return (f"{a}x+{b}x өрнегін ықшамдағандағы x коэффициентін табыңыз.", str(a+b), "Ұқсас мүшелердің коэффициенттерін қосыңыз.")
+    if topic == "Бір айнымалысы бар теңдеу":
+        a, x, b = r.randint(2, 9), r.randint(2, 15), r.randint(1, 20)
+        return (f"{a}x+{b}={a*x+b} теңдеуін шешіңіз.", str(x), "Алдымен бос мүшені азайтып, коэффициентке бөліңіз.")
+    if topic == "Координаталық жазықтық":
+        x, y = r.randint(-12, 12), r.randint(-12, 12)
+        return (f"A({x};{y}) нүктесінің абсциссасын жазыңыз.", str(x), "Абсцисса — бірінші координата.")
+
+    if topic == "Бүтін көрсеткішті дәреже":
+        a, n = r.randint(2, 6), r.randint(2, 5)
+        return (f"{a}^{n} мәнін табыңыз.", str(a**n), "Негізді дәреже көрсеткіші қанша болса, сонша рет көбейтіңіз.")
+    if topic == "Көпмүшелер":
+        a, b = r.randint(2, 12), r.randint(2, 12)
+        return (f"({a}x+{b}x) өрнегіндегі x коэффициентін табыңыз.", str(a+b), "Ұқсас мүшелерді біріктіріңіз.")
+    if topic == "Сызықтық функция":
+        k, x, b = r.randint(-7, 8), r.randint(-6, 8), r.randint(-10, 10)
+        return (f"y={k}x+{b} болса, x={x} кезіндегі y-ті табыңыз.", str(k*x+b), "x мәнін функцияға қойыңыз.")
+    if topic == "Теңдеулер жүйесі":
+        x, y = r.randint(1, 12), r.randint(1, 12)
+        return (f"x+y={x+y}, x−y={x-y} жүйесіндегі x-ті табыңыз.", str(x), "Екі теңдеуді қосып, 2x-ті табыңыз.")
+    if topic == "Үшбұрыштар":
+        a, b = r.randint(25, 75), r.randint(25, 75)
+        if a+b >= 170: b = 170-a
+        return (f"Үшбұрыштың екі бұрышы {a}° және {b}°. Үшінші бұрышын табыңыз.", str(180-a-b), "Үшбұрыш бұрыштарының қосындысы 180°.")
+
+    if topic == "Квадрат түбір":
+        a = r.randint(3, 30)
+        return (f"√{a*a} мәнін табыңыз.", str(a), "Арифметикалық квадрат түбірді табыңыз.")
+    if topic == "Квадрат теңдеу":
+        a, b = sorted(r.sample(range(1, 13), 2))
+        return (f"x²−{a+b}x+{a*b}=0 түбірлерін үтірмен жазыңыз.", f"{a},{b}", "Қосындысы мен көбейтіндісі берілген сандарды табыңыз.")
+    if topic == "Рационал теңдеулер":
+        x, shift, k = r.randint(2, 15), r.randint(1, 8), r.randint(2, 9)
+        return (f"{k*(x-shift)}/(x−{shift})={k} теңдеуінің ұсынылған шешімі x={x}. x мәнін жазыңыз.", str(x), "Бөлім нөлге тең емес екенін тексеріңіз.")
+    if topic == "Квадраттық функция":
+        a, b = r.randint(-8, 8), r.randint(-10, 10)
+        return (f"y=(x−({a}))²+({b}) параболасы төбесінің абсциссасын табыңыз.", str(a), "y=(x−a)²+b формуласындағы a.")
+    if topic == "Пифагор теоремасы":
+        triple = r.choice([(3,4,5),(5,12,13),(8,15,17),(7,24,25)]); k = r.randint(1, 8)
+        a, b, c = [v*k for v in triple]
+        return (f"Катеттері {a} және {b} болатын тікбұрышты үшбұрыштың гипотенузасын табыңыз.", str(c), "c²=a²+b².")
+
+    if topic == "Квадрат теңсіздік":
+        a = r.randint(2, 12)
+        return (f"x²−{a*a}<0 теңсіздігінің ең үлкен бүтін шешімін табыңыз.", str(a-1), f"−{a}<x<{a}.")
+    if topic == "Прогрессиялар":
+        a, d, n = r.randint(1, 20), r.randint(2, 9), r.randint(4, 12)
+        return (f"a₁={a}, d={d} арифметикалық прогрессиясының a{n} мүшесін табыңыз.", str(a+(n-1)*d), "aₙ=a₁+(n−1)d.")
+    if topic == "Тригонометрия":
+        angle, ans = r.choice([(0,0),(30,0.5),(90,1),(150,0.5),(180,0)]); k = r.randint(1, 9)
+        return (f"{k}·sin{angle}° мәнін табыңыз.", _fmt(k*ans), "Алдымен синустың негізгі мәнін тауып, коэффициентке көбейтіңіз.")
+    if topic == "Ықтималдық":
+        n = r.randint(4, 20); good = r.randint(1, n-1); g = math.gcd(good, n)
+        return (f"{n} тең мүмкін нәтижесінің {good}-і қолайлы. Ықтималдықты бөлшекпен жазыңыз.", f"{good//g}/{n//g}", "Қолайлы нәтижені барлық нәтиже санына бөліңіз.")
+    if topic == "Векторлар":
+        x1, y1, x2, y2 = [r.randint(-9, 9) for _ in range(4)]
+        return (f"a=({x1};{y1}), b=({x2};{y2}). a+b векторының бірінші координатасын табыңыз.", str(x1+x2), "Сәйкес координаталарды қосыңыз.")
+
+    if topic == "Функция қасиеттері":
+        k, b, x = r.randint(-8, 9), r.randint(-12, 12), r.randint(-6, 9)
+        return (f"f(x)={k}x+{b} болса, f({x}) мәнін табыңыз.", str(k*x+b), "x орнына берілген санды қойыңыз.")
+    if topic == "Тригонометриялық функциялар":
+        angle, ans = r.choice([(0,1),(60,0.5),(90,0),(120,-0.5),(180,-1)]); k = r.randint(1, 9)
+        return (f"{k}·cos{angle}° мәнін табыңыз.", _fmt(k*ans), "Алдымен косинустың негізгі мәнін тауып, коэффициентке көбейтіңіз.")
+    if topic == "Көрсеткіштік теңдеу":
+        base, x = r.randint(2, 6), r.randint(2, 6)
+        return (f"{base}ˣ={base**x} теңдеуін шешіңіз.", str(x), "Оң жағын негіздің дәрежесі түрінде жазыңыз.")
+    if topic == "Логарифм":
+        base, x = r.randint(2, 7), r.randint(2, 5)
+        return (f"log_{base}({base**x}) мәнін табыңыз.", str(x), "Логарифм анықтамасын қолданыңыз.")
+    if topic == "Туынды":
+        n, x = r.randint(2, 6), r.randint(1, 5)
+        return (f"f(x)=x^{n} болса, f′({x}) мәнін табыңыз.", str(n*x**(n-1)), "(xⁿ)′=nxⁿ⁻¹.")
+
+    if topic == "Алғашқы функция және интеграл":
+        k, n, upper = r.randint(2, 8), r.randint(1, 4), r.randint(1, 5)
+        value = k * upper**(n+1) / (n+1)
+        return (f"∫₀^{upper} {k}x^{n} dx мәнін табыңыз.", _fmt(value), "Дәрежені 1-ге арттырып, жаңа дәрежеге бөліңіз.")
+    if topic == "Математикалық статистика":
+        nums = [r.randint(2, 20) for _ in range(3)]; total = sum(nums); nums.append((4-total%4)%4+4)
+        return (f"{', '.join(map(str, nums))} сандарының арифметикалық ортасын табыңыз.", _fmt(sum(nums)/4), "Қосындыны сандар санына бөліңіз.")
+    if topic == "Дәрежелер және түбірлер":
+        root, n = r.randint(2, 9), r.choice([3, 4, 5])
+        return (f"{n}-дәрежелі √({root**n}) мәнін табыңыз.", str(root), "Түбірге кері дәрежелеуді қолданыңыз.")
+    if topic == "Иррационал теңдеулер":
+        root, shift = r.randint(2, 12), r.randint(-8, 8); solution = root*root-shift
+        sign = "+" if shift >= 0 else "−"
+        return (f"√(x {sign} {abs(shift)})={root} теңдеуін шешіңіз.", str(solution), "Екі жағын квадраттап, ММЖ-ны тексеріңіз.")
+    if topic == "Комплекс сандар":
+        a, b, c, d = [r.randint(-9, 9) for _ in range(4)]
+        return (f"({a}+{b}i)+({c}+{d}i) қосындысының нақты бөлігін табыңыз.", str(a+c), "Нақты бөліктерді бөлек қосыңыз.")
+
+    raise ValueError(f"Тапсырма генераторы табылмады: {grade} / {topic}")
+
+
+for _grade, _topics in COURSES.items():
+    for _topic, _questions in _topics.items():
+        _i = 1
+        while len(_questions) < 20:
+            candidate = _generated_question(_grade, _topic, _i)
+            numbered = (f"{candidate[0]} 〔№{_i}〕", candidate[1], candidate[2])
+            _questions.append(numbered)
+            _i += 1
 
 
 def _norm(value):
